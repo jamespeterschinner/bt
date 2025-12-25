@@ -28,11 +28,11 @@ func (o Operation) Repr() string {
 		"",
 		"moving",
 		"copying",
-		"confirm removing (y/n) of",
+		"delete?",
 		"g",
-		"create new (f)ile/(d)irectory",
-		"enter new file name:",
-		"enter new directory name:",
+		"(f)ile | (d)irectory",
+		"enter new file name",
+		"enter new directory name",
 		"renaming",
 	}[o]
 }
@@ -230,6 +230,10 @@ func (s *State) processKeyDefault(msg tea.KeyMsg) tea.Cmd {
 		s.OpBuf = Noop
 		s.ErrBuf = ""
 	case "ctrl+c", "q":
+		// path := os.Getenv("ON_EXIT")
+		// if path != "" {
+		// 	exec.Command(path).Run()
+		// }
 		return tea.Quit
 	case "shift+tab":
 		s.Tree.ToggleMarkSelectedChild()
@@ -295,12 +299,18 @@ func (s *State) processKeyDefault(msg tea.KeyMsg) tea.Cmd {
 	case "enter":
 		child := s.Tree.GetSelectedChild()
 		if child != nil && child.Info.Mode().IsRegular() {
-			return xdgOpenFile(child.Path)
+			return openEditor(child.Path)
+			// return xdgOpenFile(child.Path)
 		} else {
 			err := s.Tree.CollapseOrExpandSelected()
 			if err != nil {
 				s.ErrBuf = err.Error()
 			}
+		}
+	case "o":
+		child := s.Tree.GetSelectedChild()
+		if child != nil && child.Info.Mode().IsRegular() {
+			return xdgOpenFile(child.Path)
 		}
 	}
 	return nil

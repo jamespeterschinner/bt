@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -97,7 +98,7 @@ func (r *Renderer) Render(s *state.State, window Dimentions) string {
 
 	// section is half a screen, devided vertically
 	// left for tree, right for file preview
-	sectionWidth := int(math.Floor(0.5 * float64(window.Width)))
+	sectionWidth := int(math.Floor(float64(window.Width)))
 
 	renderedTree := r.renderTree(s.Tree, Dimentions{Height: window.Height - headLen, Width: sectionWidth})
 
@@ -129,18 +130,22 @@ func (r *Renderer) renderHeading(s *state.State, width int) (string, int) {
 	selected := s.Tree.GetSelectedChild()
 
 	// NOTE: special case for empty dir
-	path := s.Tree.CurrentDir.Path + "/..."
+	// path := s.Tree.CurrentDir.Path + "/..."
 	changeTime := "--"
 	size := "0 B"
 	perm := "--"
 
 	if selected != nil {
-		path = makeRelPath(s.Tree.Root.Path, selected.Path)
+		// path = makeRelPath(s.Tree.Root.Path, selected.Path)
 		changeTime = selected.Info.ModTime().Format(time.RFC822)
 		size = formatSize(float64(selected.Info.Size()), 1024.0)
 		perm = selected.Info.Mode().String()
 	}
-	operationBar := fmt.Sprintf(": %s", s.OpBuf.Repr())
+
+	operationBar := ""
+	if s.OpBuf.Repr() != "" {
+		operationBar = fmt.Sprintf(": %s", s.OpBuf.Repr())
+	}
 
 	if s.Tree.Marked != nil {
 		paths := []string{}
@@ -155,32 +160,38 @@ func (r *Renderer) renderHeading(s *state.State, width int) (string, int) {
 			operationBar += fmt.Sprintf(" [%s]", markedPath)
 		}
 	}
-	if s.OpBuf.IsInput() {
-		operationBar += fmt.Sprintf(" │ %s │", r.Style.OperationBarInput.Render(string(s.InputBuf)))
-	}
 
-	rawPath := "> " + path
+	// rawPath := "> " + path
 
-	finfo := fmt.Sprintf(
-		"%s %s %v %s %s",
-		r.Style.FinfoPermissions.Render(perm),
-		r.Style.FinfoSep.Render("│"),
-		r.Style.FinfoLastUpdated.Render(changeTime),
-		r.Style.FinfoSep.Render("│"),
-		r.Style.FinfoSize.Render(size),
-	)
+	// finfo := fmt.Sprintf(
+	// 	"%s %s %v %s %s",
+
+	// )
 
 	header := []string{
-		r.Style.SelectedPath.Render(rawPath) +
-			strings.Repeat(
-				" ",
-				max(width-utf8.RuneCountInString(rawPath)-utf8.RuneCountInString(helpPreview), 0),
-			) +
-			r.Style.HelpMsg.Render(helpPreview),
-		finfo,
+		r.Style.FinfoPermissions.Render(perm),
+		// r.Style.FinfoSep.Render("│"),
+		r.Style.FinfoLastUpdated.Render(changeTime),
+		// r.Style.FinfoSep.Render("│"),
+		r.Style.FinfoSize.Render(size),
+		// finfo,
 		r.Style.OperationBar.Render(operationBar),
-		r.Style.ErrBar.Render(s.ErrBuf),
 	}
+
+	branch, err := exec.Command("git", "branch", "--show-current").Output()
+	if err == nil {
+		formattedBranch := strings.TrimSpace(string(branch))
+		header = append([]string{formattedBranch}, header...)
+	}
+
+	if s.OpBuf.IsInput() {
+		name := fmt.Sprintf("> %s", string(s.InputBuf))
+		header = append(header, name)
+	}
+
+	header = append(header,
+		r.Style.ErrBar.Render(s.ErrBuf))
+
 	return strings.Join(header, "\n"), len(header)
 }
 
