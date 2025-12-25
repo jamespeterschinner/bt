@@ -10,14 +10,17 @@ import (
 	"strings"
 )
 
-type NodeSortingFunc func(a, b *Node) int
+type NodeSortingFunc func(a, b os.DirEntry) int
 
 type Node struct {
+	Index    int
 	Path     string
 	Info     fs.FileInfo
 	Children []*Node // nil - not read or it's a file
 	Parent   *Node
 
+	UpNode           *Node
+	DownNode         *Node
 	selectedChildIdx int
 	showHidden       bool
 }
@@ -38,49 +41,79 @@ func (n *Node) readChildren(sortFunc NodeSortingFunc) error {
 	if !n.Info.IsDir() {
 		return nil
 	}
-	children, err := os.ReadDir(n.Path)
+	dirEntries, err := os.ReadDir(n.Path)
 	if err != nil {
 		return err
 	}
+
+	previousNode := n
+	nDownNode := n.DownNode
+
 	chNodes := []*Node{}
 
-	for _, ch := range children {
-		chInfo, err := ch.Info()
+	slices.SortFunc(dirEntries, sortFunc)
+
+	for index, dirEntry := range dirEntries {
+		dirInfo, err := dirEntry.Info()
 		if err != nil {
 			return err
 		}
 		// Skipping hidden node
-		if !n.showHidden && strings.HasPrefix(chInfo.Name(), ".") {
+		if !n.showHidden && strings.HasPrefix(dirInfo.Name(), ".") {
 			continue
 		}
 		// Looking if child already exist, so i'm keeping it's read children intact
 		var childToAdd *Node
 		if n.Children != nil {
 			for _, ech := range n.Children {
-				if ech.Info.Name() == chInfo.Name() {
+				if ech.Info.Name() == dirInfo.Name() {
 					childToAdd = ech
-					childToAdd.Info = chInfo // updating info in case file was changed
+					childToAdd.Index = index
+					childToAdd.Info = dirInfo // updating info in case file was changed
+					childToAdd.UpNode = previousNode
 					break
 				}
 			}
 		}
 		if childToAdd == nil {
 			childToAdd = NewNode(
-				filepath.Join(n.Path, chInfo.Name()),
-				chInfo,
+				index,
+				filepath.Join(n.Path, dirInfo.Name()),
+				dirInfo,
 				n,
 			)
+			childToAdd.UpNode = previousNode
+
 		}
 		chNodes = append(chNodes, childToAdd)
+
+		previousNode.DownNode = childToAdd
+		previousNode = childToAdd
 	}
-	slices.SortFunc(chNodes, sortFunc)
 	n.Children = chNodes
+
+	if nDownNode != nil {
+		nDownNode.UpNode = previousNode
+		previousNode.DownNode = nDownNode
+	}
 
 	// updateing selected child index if it's out of bounds after update
 	n.selectedChildIdx = max(min(n.selectedChildIdx, len(n.Children)-1), 0)
 	return nil
 }
 func (n *Node) orphanChildren() {
+	n.DownNode = nil
+
+	// stitch the linked list back together
+	lenChildren := len(n.Children)
+	if lenChildren > 0 {
+		lastChild := n.Children[lenChildren-1]
+		if lastChild.DownNode != nil {
+			n.DownNode = lastChild.DownNode
+			n.DownNode.UpNode = n
+		}
+	}
+
 	n.Children = nil
 }
 func (n *Node) ReadContent(buf []byte, limit int64) (int, error) {
@@ -100,8 +133,9 @@ func (n *Node) ReadContent(buf []byte, limit int64) (int, error) {
 	return k, nil
 }
 
-func NewNode(path string, info fs.FileInfo, parent *Node) *Node {
+func NewNode(index int, path string, info fs.FileInfo, parent *Node) *Node {
 	return &Node{
+		Index:      index,
 		Path:       path,
 		Info:       info,
 		Children:   nil,
@@ -110,14 +144,14 @@ func NewNode(path string, info fs.FileInfo, parent *Node) *Node {
 	}
 }
 
-func defaultNodeSorting(a, b *Node) int {
+func defaultNodeSorting(a, b os.DirEntry) int {
 	// dirs first
-	if a.Info.IsDir() != b.Info.IsDir() {
-		if a.Info.IsDir() {
+	if a.IsDir() != b.IsDir() {
+		if a.IsDir() {
 			return -1
 		} else {
 			return 1
 		}
 	}
-	return strings.Compare(strings.ToLower(a.Info.Name()), strings.ToLower(b.Info.Name()))
+	return strings.Compare(strings.ToLower(a.Name()), strings.ToLower(b.Name()))
 }
