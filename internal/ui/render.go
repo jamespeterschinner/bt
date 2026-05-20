@@ -60,6 +60,9 @@ type Renderer struct {
 
 	highlightCurrentIndent bool
 
+	dimGitignored bool
+	ignoredStyle  lipgloss.Style
+
 	offsetMem int
 }
 
@@ -68,6 +71,8 @@ func NewRenderer(
 	edgePadding int,
 	previewEnabled bool,
 	highlightCurrentIndent bool,
+	dimGitignored bool,
+	gitignoreOpacity float64,
 ) *Renderer {
 	previewChan := make(chan Preview, previewChangBuffer)
 	return &Renderer{
@@ -78,7 +83,19 @@ func NewRenderer(
 		previewGenChan:         previewChan,
 		previewEnabled:         previewEnabled,
 		highlightCurrentIndent: highlightCurrentIndent,
+		dimGitignored:          dimGitignored,
+		ignoredStyle:           lipgloss.NewStyle().Foreground(grayFromOpacity(gitignoreOpacity)),
 	}
+}
+
+func grayFromOpacity(opacity float64) lipgloss.Color {
+	if opacity < 0 {
+		opacity = 0
+	} else if opacity > 1 {
+		opacity = 1
+	}
+	v := int(opacity * 255)
+	return lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", v, v, v))
 }
 
 func (r *Renderer) SetPreviewCache(preivew Preview) {
@@ -335,7 +352,9 @@ func (r *Renderer) renderTreeFull(tree *t.Tree, width int) ([]string, int) {
 			name = string([]rune(name)[:max(0, width-indentRuneCount-6)]) + "..."
 		}
 
-		if node.Info.IsDir() {
+		if r.dimGitignored && node.IsIgnored {
+			name = r.ignoredStyle.Render(name)
+		} else if node.Info.IsDir() {
 			name = r.Style.TreeDirecotryName.Render(name)
 		} else if node.Info.Mode()&os.ModeSymlink == os.ModeSymlink {
 			name = r.Style.TreeLinkName.Render(name)

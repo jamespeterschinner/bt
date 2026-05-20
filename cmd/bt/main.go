@@ -54,12 +54,14 @@ func newModel(
 	filePreview bool,
 	highlightCurrentIndent bool,
 	flatNavigation bool,
+	dimGitignored bool,
+	gitignoreOpacity float64,
 ) (model, error) {
 	s, err := state.InitState(root, flatNavigation)
 	if err != nil {
 		return model{}, err
 	}
-	renderer := ui.NewRenderer(style, padding, filePreview, highlightCurrentIndent)
+	renderer := ui.NewRenderer(style, padding, filePreview, highlightCurrentIndent, dimGitignored, gitignoreOpacity)
 	return model{
 		appState: s,
 		renderer: renderer,
@@ -84,6 +86,8 @@ func main() {
 	flag.Bool("file_preview", true, "Enable file previews")
 	flag.Bool("highlight_indent", true, "Highlight current indent")
 	flag.Bool("flat_navigation", false, "Ignore folder structure when moving up/down")
+	flag.Bool("dim_gitignored", true, "Dim files/folders matched by .gitignore")
+	flag.Float64("gitignore_opacity", 0.4, "Opacity (0.0-1.0) applied to gitignored entries when dimming is enabled")
 
 	flag.Parse()
 
@@ -101,6 +105,8 @@ func main() {
 		conf.FilePreview,
 		conf.HighlightIndent,
 		conf.FlatNavigation,
+		conf.DimGitignored,
+		conf.GitignoreOpacity,
 	)
 	if err != nil {
 		fmt.Printf("Error on init: %v", err)

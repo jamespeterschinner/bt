@@ -20,6 +20,21 @@ type Tree struct {
 	sortingFunc    NodeSortingFunc
 	watcher        *fsnotify.Watcher
 	flatNavigation bool
+	inGitRepo      bool
+}
+
+func (t *Tree) markIgnored(nodes []*Node) {
+	if !t.inGitRepo || len(nodes) == 0 {
+		return
+	}
+	paths := make([]string, len(nodes))
+	for i, n := range nodes {
+		paths[i] = n.Path
+	}
+	ignored := checkIgnored(t.Root.Path, paths)
+	for _, n := range nodes {
+		n.IsIgnored = ignored[n.Path]
+	}
 }
 
 func (t *Tree) GetSelectedChild() *Node {
@@ -30,7 +45,11 @@ func (t *Tree) GetSelectedChild() *Node {
 }
 func (t *Tree) ToggleHiddenInCurrentDirectory() error {
 	t.CurrentDir.showHidden = !t.CurrentDir.showHidden
-	return t.CurrentDir.readChildren(defaultNodeSorting)
+	if err := t.CurrentDir.readChildren(defaultNodeSorting); err != nil {
+		return err
+	}
+	t.markIgnored(t.CurrentDir.Children)
+	return nil
 }
 func (t *Tree) RemoveNodeFromMarkByPath(path string) {
 	t.Marked = slices.DeleteFunc(
@@ -45,7 +64,11 @@ outer:
 	for {
 		// Reading children when a parent node found.
 		if parentDir == cur.Path {
-			return cur.readChildren(t.sortingFunc)
+			if err := cur.readChildren(t.sortingFunc); err != nil {
+				return err
+			}
+			t.markIgnored(cur.Children)
+			return nil
 		}
 		// Going through directories towards `parentDir`.
 		for _, ch := range cur.Children {
@@ -157,6 +180,7 @@ func (t *Tree) SetSelectedChildAsCurrent() error {
 		if err != nil {
 			return err
 		}
+		t.markIgnored(selectedChild.Children)
 		t.watcher.Add(selectedChild.Path)
 	}
 	t.CurrentDir = selectedChild
@@ -264,6 +288,7 @@ func (t *Tree) CollapseOrExpandSelected() error {
 		if err != nil {
 			return err
 		}
+		t.markIgnored(selectedChild.Children)
 		t.watcher.Add(selectedChild.Path)
 	}
 	return nil
@@ -312,7 +337,9 @@ func InitTree(dir string, sortingFunc NodeSortingFunc, flatNavigation bool) (*Tr
 		sortingFunc:    sortingFunc,
 		watcher:        watcher,
 		flatNavigation: flatNavigation,
+		inGitRepo:      detectGitRepo(absDir),
 	}
+	tree.markIgnored(root.Children)
 	return tree, changeChan, nil
 }
 

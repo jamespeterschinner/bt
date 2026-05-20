@@ -13,10 +13,11 @@ import (
 type NodeSortingFunc func(a, b os.DirEntry) int
 
 type Node struct {
-	Path     string
-	Info     fs.FileInfo
-	Children []*Node // nil - not read or it's a file
-	Parent   *Node
+	Path      string
+	Info      fs.FileInfo
+	Children  []*Node // nil - not read or it's a file
+	Parent    *Node
+	IsIgnored bool
 
 	selectedChildIdx int
 	showHidden       bool
@@ -43,7 +44,6 @@ func (n *Node) readChildren(sortFunc NodeSortingFunc) error {
 		return err
 	}
 	chNodes := []*Node{}
-
 
 	slices.SortFunc(children, sortFunc)
 	for _, ch := range children {

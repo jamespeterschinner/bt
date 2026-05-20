@@ -8,11 +8,13 @@ import (
 )
 
 type BtConfig struct {
-	Padding         int  `mapstructure:"padding"`
-	FilePreview     bool `mapstructure:"file_preview"`
-	HighlightIndent bool `mapstructure:"highlight_indent"`
-	InPlaceRender   bool `mapstructure:"in_place_render"`
-	FlatNavigation  bool `mapstructure:"flat_navigation"`
+	Padding          int     `mapstructure:"padding"`
+	FilePreview      bool    `mapstructure:"file_preview"`
+	HighlightIndent  bool    `mapstructure:"highlight_indent"`
+	InPlaceRender    bool    `mapstructure:"in_place_render"`
+	FlatNavigation   bool    `mapstructure:"flat_navigation"`
+	DimGitignored    bool    `mapstructure:"dim_gitignored"`
+	GitignoreOpacity float64 `mapstructure:"gitignore_opacity"`
 }
 
 func GetConfig(flags *pflag.FlagSet) BtConfig {
