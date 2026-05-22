@@ -15,6 +15,7 @@ type BtConfig struct {
 	FlatNavigation   bool    `mapstructure:"flat_navigation"`
 	DimGitignored    bool    `mapstructure:"dim_gitignored"`
 	GitignoreOpacity float64 `mapstructure:"gitignore_opacity"`
+	SearchHitLimit   int     `mapstructure:"search_hit_limit"`
 }
 
 func GetConfig(flags *pflag.FlagSet) BtConfig {

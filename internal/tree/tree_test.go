@@ -52,7 +52,7 @@ func (s *TreeTestSuite) SetupTest() {
 	)
 
 	// Init Tree with this dir
-	tree, _, err := InitTree(rootPath, defaultNodeSorting, true)
+	tree, _, err := InitTree(rootPath, defaultNodeSorting, true, defaultSearchHitLimit)
 	s.Require().NoError(err)
 	s.tree = tree
 }

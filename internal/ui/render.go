@@ -228,6 +228,8 @@ func (r *Renderer) renderHelp(width int) (string, int) {
 		"e                Edit selected file in $EDITOR",
 		"gg               Go to top most child in current directory",
 		"G                Go to last child in current directory",
+		"f                Find by name (type to filter; up/down to cycle; enter to keep, esc to cancel)",
+		"/                Find in files via ripgrep (rg required)",
 		"H                Toggle hidden files in current directory",
 		"enter            Open / close selected directory or open file (xdg-open / open)",
 		"esc              Clear error message / stop current operation / drop marks",
@@ -311,6 +313,13 @@ func (r *Renderer) renderTreeFull(tree *t.Tree, width int) ([]string, int) {
 
 	selected := tree.GetSelectedChild()
 
+	matchSet := map[*t.Node]struct{}{}
+	for _, m := range tree.SearchMatches() {
+		if n := m.Node(); n != nil {
+			matchSet[n] = struct{}{}
+		}
+	}
+
 	for s.Len() > 0 {
 		el := s.Pop()
 		linen += 1
@@ -352,7 +361,9 @@ func (r *Renderer) renderTreeFull(tree *t.Tree, width int) ([]string, int) {
 			name = string([]rune(name)[:max(0, width-indentRuneCount-6)]) + "..."
 		}
 
-		if r.dimGitignored && node.IsIgnored {
+		if _, isMatch := matchSet[node]; isMatch {
+			name = r.Style.TreeSearchMatch.Render(name)
+		} else if r.dimGitignored && node.IsIgnored {
 			name = r.ignoredStyle.Render(name)
 		} else if node.Info.IsDir() {
 			name = r.Style.TreeDirecotryName.Render(name)

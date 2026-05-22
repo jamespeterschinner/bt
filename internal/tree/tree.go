@@ -1,6 +1,7 @@
 package tree
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+const defaultSearchHitLimit = 10
+
 type Tree struct {
 	Root       *Node
 	CurrentDir *Node
@@ -21,6 +24,35 @@ type Tree struct {
 	watcher        *fsnotify.Watcher
 	flatNavigation bool
 	inGitRepo      bool
+	searchHitLimit int
+
+	search        searchSnapshot
+	searchMatches []SearchMatch
+	searchCursor  int
+}
+
+// SearchMatch is one hit in the current search result list — a child at
+// position Idx within Parent.Children.
+type SearchMatch struct {
+	Parent *Node
+	Idx    int
+}
+
+func (m SearchMatch) Node() *Node {
+	if m.Parent == nil || m.Idx < 0 || m.Idx >= len(m.Parent.Children) {
+		return nil
+	}
+	return m.Parent.Children[m.Idx]
+}
+
+// searchSnapshot remembers state changed during an active incremental search
+// so it can be reverted if the user cancels.
+type searchSnapshot struct {
+	active        bool
+	originDir     *Node
+	originIdx     int
+	expandedNodes []*Node       // nodes whose Children were nil before search
+	modifiedIdx   map[*Node]int // original selectedChildIdx of nodes the search changed
 }
 
 func (t *Tree) markIgnored(nodes []*Node) {
@@ -275,6 +307,256 @@ func (t *Tree) MoveMarkedToCurrentDir() error {
 	t.Marked = nil
 	return nil
 }
+// BeginSearch snapshots the current position so a later RevertSearch can
+// undo any tree state changes (expansions, selection moves) that Search
+// makes as the user types.
+func (t *Tree) BeginSearch() {
+	t.search = searchSnapshot{
+		active:      true,
+		originDir:   t.CurrentDir,
+		originIdx:   t.CurrentDir.selectedChildIdx,
+		modifiedIdx: map[*Node]int{},
+	}
+	t.searchMatches = nil
+	t.searchCursor = 0
+}
+
+// EndSearch commits the current search position and discards the snapshot.
+func (t *Tree) EndSearch() {
+	t.search = searchSnapshot{}
+	t.searchMatches = nil
+	t.searchCursor = 0
+}
+
+// RevertSearch restores the tree to the state it had when BeginSearch was
+// called: selection indices are rolled back, directories expanded by the
+// search are collapsed, and CurrentDir is reset to the origin.
+func (t *Tree) RevertSearch() {
+	if !t.search.active {
+		return
+	}
+	for n, idx := range t.search.modifiedIdx {
+		n.selectedChildIdx = idx
+	}
+	for i := len(t.search.expandedNodes) - 1; i >= 0; i-- {
+		n := t.search.expandedNodes[i]
+		n.orphanChildren()
+		t.watcher.Remove(n.Path)
+	}
+	if t.search.originDir != nil {
+		t.CurrentDir = t.search.originDir
+		t.search.originDir.selectedChildIdx = t.search.originIdx
+	}
+	t.search = searchSnapshot{}
+	t.searchMatches = nil
+	t.searchCursor = 0
+}
+
+func (t *Tree) SearchMatches() []SearchMatch { return t.searchMatches }
+func (t *Tree) SearchCursor() int            { return t.searchCursor }
+func (t *Tree) SearchActive() bool           { return t.search.active }
+
+// NextSearchHit moves the cursor to the next match and re-points CurrentDir.
+func (t *Tree) NextSearchHit() {
+	if len(t.searchMatches) == 0 {
+		return
+	}
+	if t.searchCursor < len(t.searchMatches)-1 {
+		t.searchCursor++
+	}
+	t.applySearchCursor()
+}
+
+// PrevSearchHit moves the cursor to the previous match and re-points CurrentDir.
+func (t *Tree) PrevSearchHit() {
+	if len(t.searchMatches) == 0 {
+		return
+	}
+	if t.searchCursor > 0 {
+		t.searchCursor--
+	}
+	t.applySearchCursor()
+}
+
+func (t *Tree) applySearchCursor() {
+	m := t.searchMatches[t.searchCursor]
+	if m.Parent == nil {
+		return
+	}
+	t.recordIdxChange(m.Parent)
+	t.CurrentDir = m.Parent
+	m.Parent.selectedChildIdx = m.Idx
+}
+
+// SearchHitLimit returns the configured cap, falling back to the default.
+func (t *Tree) SearchHitLimit() int {
+	if t.searchHitLimit <= 0 {
+		return defaultSearchHitLimit
+	}
+	return t.searchHitLimit
+}
+
+// FilenameBFS walks the real filesystem from root in level-order, returning
+// up to `limit` paths whose basename contains `query` (case-insensitive).
+// Pure I/O — safe to call from a tea.Cmd goroutine.
+func FilenameBFS(query, root string, limit int) ([]string, error) {
+	if query == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = defaultSearchHitLimit
+	}
+	q := strings.ToLower(query)
+	paths := make([]string, 0, limit)
+	queue := []string{root}
+	for len(queue) > 0 && len(paths) < limit {
+		dir := queue[0]
+		queue = queue[1:]
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			full := filepath.Join(dir, name)
+			if strings.Contains(strings.ToLower(name), q) {
+				paths = append(paths, full)
+				if len(paths) >= limit {
+					break
+				}
+			}
+			if e.IsDir() {
+				queue = append(queue, full)
+			}
+		}
+	}
+	return paths, nil
+}
+
+func (t *Tree) recordIdxChange(n *Node) {
+	if !t.search.active {
+		return
+	}
+	if _, ok := t.search.modifiedIdx[n]; !ok {
+		t.search.modifiedIdx[n] = n.selectedChildIdx
+	}
+}
+
+// RipgrepFiles runs `rg -l` and returns the matching file paths. Pure I/O
+// — safe to call from a tea.Cmd goroutine (does not touch Tree state).
+// Returns (nil, nil) for an empty query or when rg found no matches.
+func RipgrepFiles(query, root string) ([]string, error) {
+	if query == "" {
+		return nil, nil
+	}
+	cmd := exec.Command(
+		"rg",
+		"--files-with-matches",
+		"--hidden",
+		"--no-ignore",
+		"-i",
+		"--",
+		query,
+		root,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, fmt.Errorf("content search requires ripgrep (rg) on $PATH")
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("rg: %w", err)
+	}
+	return strings.Split(strings.TrimSpace(string(out)), "\n"), nil
+}
+
+// ApplyPathMatches takes a list of file paths (from FilenameBFS or
+// RipgrepFiles), walks the tree to each one (expanding into the snapshot),
+// and populates searchMatches up to searchHitLimit. Empty paths / "" query
+// revert CurrentDir to the search origin.
+func (t *Tree) ApplyPathMatches(query string, paths []string) {
+	t.searchCursor = 0
+	if query == "" || len(paths) == 0 {
+		t.searchMatches = nil
+		if t.search.active && t.search.originDir != nil {
+			t.CurrentDir = t.search.originDir
+		}
+		return
+	}
+	limit := t.searchHitLimit
+	if limit <= 0 {
+		limit = defaultSearchHitLimit
+	}
+	matches := make([]SearchMatch, 0, limit)
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		parent, idx, err := t.locateByPath(p)
+		if err != nil || parent == nil {
+			continue
+		}
+		matches = append(matches, SearchMatch{Parent: parent, Idx: idx})
+		if len(matches) >= limit {
+			break
+		}
+	}
+	t.searchMatches = matches
+	if len(matches) == 0 {
+		if t.search.active && t.search.originDir != nil {
+			t.CurrentDir = t.search.originDir
+		}
+		return
+	}
+	t.applySearchCursor()
+}
+
+// locateByPath walks from Root toward absPath, expanding directories
+// as needed (tracked in the search snapshot). Returns the matching
+// child's parent and index, or (nil, 0, nil) if any segment is missing.
+func (t *Tree) locateByPath(absPath string) (*Node, int, error) {
+	rel, err := filepath.Rel(t.Root.Path, absPath)
+	if err != nil {
+		return nil, 0, err
+	}
+	segments := strings.Split(rel, string(filepath.Separator))
+	if len(segments) == 0 || segments[0] == "." {
+		return nil, 0, nil
+	}
+	cur := t.Root
+	for i, seg := range segments {
+		if cur.Info.IsDir() && cur.Children == nil {
+			if err := cur.readChildren(t.sortingFunc); err != nil {
+				return nil, 0, err
+			}
+			t.markIgnored(cur.Children)
+			t.watcher.Add(cur.Path)
+			if t.search.active {
+				t.search.expandedNodes = append(t.search.expandedNodes, cur)
+			}
+		}
+		found := -1
+		for idx, ch := range cur.Children {
+			if ch.Info.Name() == seg {
+				found = idx
+				break
+			}
+		}
+		if found < 0 {
+			return nil, 0, nil
+		}
+		if i == len(segments)-1 {
+			return cur, found, nil
+		}
+		cur = cur.Children[found]
+	}
+	return nil, 0, nil
+}
+
+
 func (t *Tree) CollapseOrExpandSelected() error {
 	selectedChild := t.GetSelectedChild()
 	if selectedChild == nil {
@@ -294,7 +576,7 @@ func (t *Tree) CollapseOrExpandSelected() error {
 	return nil
 }
 
-func InitTree(dir string, sortingFunc NodeSortingFunc, flatNavigation bool) (*Tree, <-chan NodeChange, error) {
+func InitTree(dir string, sortingFunc NodeSortingFunc, flatNavigation bool, searchHitLimit int) (*Tree, <-chan NodeChange, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, nil, err
@@ -338,6 +620,7 @@ func InitTree(dir string, sortingFunc NodeSortingFunc, flatNavigation bool) (*Tr
 		watcher:        watcher,
 		flatNavigation: flatNavigation,
 		inGitRepo:      detectGitRepo(absDir),
+		searchHitLimit: searchHitLimit,
 	}
 	tree.markIgnored(root.Children)
 	return tree, changeChan, nil

@@ -40,6 +40,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ui.Preview:
 		m.renderer.SetPreviewCache(msg)
 		return m, listenPreviewReady(m.renderer.PreviewDoneChan)
+	case state.SearchResultMsg:
+		m.appState.ApplySearchResult(msg)
 	}
 	return m, nil
 }
@@ -56,8 +58,9 @@ func newModel(
 	flatNavigation bool,
 	dimGitignored bool,
 	gitignoreOpacity float64,
+	searchHitLimit int,
 ) (model, error) {
-	s, err := state.InitState(root, flatNavigation)
+	s, err := state.InitState(root, flatNavigation, searchHitLimit)
 	if err != nil {
 		return model{}, err
 	}
@@ -88,6 +91,7 @@ func main() {
 	flag.Bool("flat_navigation", false, "Ignore folder structure when moving up/down")
 	flag.Bool("dim_gitignored", true, "Dim files/folders matched by .gitignore")
 	flag.Float64("gitignore_opacity", 0.4, "Opacity (0.0-1.0) applied to gitignored entries when dimming is enabled")
+	flag.Int("search_hit_limit", 10, "Maximum search hits to collect before stopping BFS")
 
 	flag.Parse()
 
@@ -107,6 +111,7 @@ func main() {
 		conf.FlatNavigation,
 		conf.DimGitignored,
 		conf.GitignoreOpacity,
+		conf.SearchHitLimit,
 	)
 	if err != nil {
 		fmt.Printf("Error on init: %v", err)

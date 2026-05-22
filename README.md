@@ -30,6 +30,7 @@ Usage of bt:
       --highlight_indent   Highlight current indent (default true)
   -i, --in_place_render    In-place render (without alternate screen)
   -p, --padding uint       Edge padding for top and bottom (default 5)
+      --search_hit_limit   Max search hits to collect before stopping BFS (default 10)
 ```
 
 Key bindings:
@@ -50,6 +51,8 @@ Key bindings:
 | e             | Edit selected file in $EDITOR                                  |
 | gg            | Go to top most child in current directory                      |
 | G             | Go to last child in current directory                          |
+| f             | Find by name (type to filter, ↑/↓ to cycle, enter to keep, esc to restore) |
+| /             | Find in files via `rg` (requires ripgrep on $PATH)             |
 | H             | Toggle hidden files in current directory                       |
 | enter         | Open / close selected directory or open file (xdg-open / open) |
 | esc           | Clear error message / stop current operation / drop marks      |
@@ -67,6 +70,7 @@ file_preview: true
 highlight_indent: true
 in_place_render: false
 flat_navigation: false  # Ignore file hierarchy when moving up/down
+search_hit_limit: 10    # Max hits BFS will collect before stopping
 ```
 
 ## Motivation
@@ -110,7 +114,7 @@ Functional:
 - [x] Mark multiple files
 - [ ] Image preview TGP
 - [ ] Custom delete cmd
-- [ ] Search
+- [x] Search
 - [ ] Marked to stdout on exit
 - [ ] Jump to current directory
 - [ ] Go higher then local root

@@ -22,6 +22,7 @@ type Stylesheet struct {
 	TreeDirecotryName   lipgloss.Style
 	TreeLinkName        lipgloss.Style
 	TreeMarkedNode      lipgloss.Style
+	TreeSearchMatch     lipgloss.Style
 	TreeSelectionArrow  lipgloss.Style
 	TreeIndent          lipgloss.Style
 	TreeIndentSelected  lipgloss.Style
@@ -56,6 +57,7 @@ var DefaultStylesheet = Stylesheet{
 		BorderLeft(true).
 		BorderStyle(lipgloss.InnerHalfBlockBorder()).
 		Background(lipgloss.Color("#363636")),
+	TreeSearchMatch:    lipgloss.NewStyle().Foreground(lipgloss.Color("#ACA46D")).Bold(true),
 	TreeSelectionArrow: lipgloss.NewStyle().Foreground(lipgloss.Color("#ACA46D")),
 	TreeIndent:         lipgloss.NewStyle().Foreground(lipgloss.Color("#363636")),
 	TreeIndentSelected: lipgloss.NewStyle().Foreground(lipgloss.Color("#ACA46D")),
