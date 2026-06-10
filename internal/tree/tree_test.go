@@ -122,6 +122,32 @@ func (s *TreeTestSuite) TestMultiSelectCopy() {
 	s.Require().Len(s.tree.Marked, 0)
 }
 
+func (s *TreeTestSuite) TestRevealPathRelative() {
+	err := s.tree.RevealPath(path.Join("inner_dir", "inner_file"))
+	s.Require().NoError(err)
+	s.Require().Equal("inner_dir", s.tree.CurrentDir.Info.Name())
+	s.Require().Equal("inner_file", s.tree.GetSelectedChild().Info.Name())
+}
+func (s *TreeTestSuite) TestRevealPathAbsolute() {
+	abs := path.Join(s.tree.Root.Path, "inner_dir", "inner_file")
+	err := s.tree.RevealPath(abs)
+	s.Require().NoError(err)
+	s.Require().Equal("inner_dir", s.tree.CurrentDir.Info.Name())
+	s.Require().Equal("inner_file", s.tree.GetSelectedChild().Info.Name())
+}
+func (s *TreeTestSuite) TestRevealPathMissingIsNoop() {
+	origin := s.tree.CurrentDir
+	err := s.tree.RevealPath(path.Join("inner_dir", "does_not_exist"))
+	s.Require().NoError(err)
+	s.Require().Equal(origin, s.tree.CurrentDir)
+}
+func (s *TreeTestSuite) TestRevealPathEmptyIsNoop() {
+	origin := s.tree.CurrentDir
+	err := s.tree.RevealPath("")
+	s.Require().NoError(err)
+	s.Require().Equal(origin, s.tree.CurrentDir)
+}
+
 func TestTreeTestSuite(t *testing.T) {
 	suite.Run(t, new(TreeTestSuite))
 }

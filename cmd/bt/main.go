@@ -118,6 +118,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Pre-expand the tree down to BT_INITIAL_PATH, if set. A missing or invalid
+	// path is a silent no-op, leaving the default root view.
+	if initialPath := os.Getenv("BT_INITIAL_PATH"); initialPath != "" {
+		m.appState.Tree.RevealPath(initialPath)
+	}
+
 	opts := []tea.ProgramOption{}
 	if !conf.InPlaceRender {
 		opts = append(opts, tea.WithAltScreen())

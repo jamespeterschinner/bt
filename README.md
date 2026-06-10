@@ -33,6 +33,12 @@ Usage of bt:
       --search_hit_limit   Max search hits to collect before stopping BFS (default 10)
 ```
 
+### Environment variables
+
+| variable          | desc                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `BT_INITIAL_PATH` | Open with the tree pre-expanded down to this path (absolute or relative to root) and that node selected. Invalid/missing paths are ignored and `bt` opens at the root as usual. |
+
 Key bindings:
 
 | key           | desc                                                           |

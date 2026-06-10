@@ -556,6 +556,26 @@ func (t *Tree) locateByPath(absPath string) (*Node, int, error) {
 	return nil, 0, nil
 }
 
+// RevealPath expands the directories along `target` (absolute, or relative to
+// Root) so the node is visible, then selects it with CurrentDir pointing at its
+// parent. Any miss — empty path, path outside Root, or a missing segment — is a
+// silent no-op so callers can fall back to the default root view.
+func (t *Tree) RevealPath(target string) error {
+	if target == "" {
+		return nil
+	}
+	abs := target
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(t.Root.Path, abs)
+	}
+	parent, idx, err := t.locateByPath(abs)
+	if err != nil || parent == nil {
+		return nil
+	}
+	parent.selectedChildIdx = idx
+	t.CurrentDir = parent
+	return nil
+}
 
 func (t *Tree) CollapseOrExpandSelected() error {
 	selectedChild := t.GetSelectedChild()
